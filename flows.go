@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 )
 
 // FlowsService administers flow definitions on Daguito. Today exposes the
@@ -65,6 +66,34 @@ func (s *FlowsService) UpsertAgent(
 		return nil, err
 	}
 	out := &AgentFlowResult{}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON response: %v", ErrAdmin, err)
+	}
+	return out, nil
+}
+
+// ResolvedFlowWebhook is the streaming webhook a flow resolves to.
+type ResolvedFlowWebhook struct {
+	FlowID       string `json:"flow_id"`
+	Slug         string `json:"slug"`
+	Name         string `json:"name"`
+	WebhookID    string `json:"webhook_id"`
+	WebhookToken string `json:"webhook_token"`
+}
+
+// ResolveWebhook resolves a flow by slug (in the org the API key belongs
+// to) and returns its streaming webhook id + a usable sk_wh_… token, so a
+// client can open an AudioStream / WebhookStream session without hardcoding
+// webhook credentials. The token is reused when the flow already has one.
+func (s *FlowsService) ResolveWebhook(
+	ctx context.Context, slug string,
+) (*ResolvedFlowWebhook, error) {
+	path := "/api/sdk/flows?slug=" + url.QueryEscape(slug)
+	raw, err := s.transport.requestJSON(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	out := &ResolvedFlowWebhook{}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON response: %v", ErrAdmin, err)
 	}
