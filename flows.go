@@ -72,6 +72,77 @@ func (s *FlowsService) UpsertAgent(
 	return out, nil
 }
 
+// FlowGraphNode is one node of a custom flow graph. `Config` carries the
+// node's `step_type` plus every step-specific field — its shape depends on
+// the step type, so it stays a free-form map.
+type FlowGraphNode struct {
+	ID       string         `json:"id"`
+	Type     string         `json:"type,omitempty"`
+	Kind     string         `json:"kind,omitempty"`
+	Config   map[string]any `json:"config,omitempty"`
+	Position *FlowNodePos   `json:"position,omitempty"`
+}
+
+// FlowNodePos is the editor canvas position of a node (cosmetic).
+type FlowNodePos struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// FlowGraphEdge wires one node's output to another node's input.
+type FlowGraphEdge struct {
+	ID           string `json:"id"`
+	Source       string `json:"source"`
+	Target       string `json:"target"`
+	SourceHandle string `json:"sourceHandle,omitempty"`
+}
+
+// FlowGraph is a complete node/edge graph for a custom flow.
+type FlowGraph struct {
+	Nodes []FlowGraphNode `json:"nodes"`
+	Edges []FlowGraphEdge `json:"edges"`
+}
+
+// FlowSpec declares a flow as a full custom graph. Unlike AgentFlowSpec
+// (the `trigger → ai_agent` preset), this carries any node/edge graph —
+// STT pipelines, extraction chains, multi-branch flows. Identity is
+// (org_id, slug); the org comes from the client's API key.
+type FlowSpec struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// TriggerType for the flow row; defaults to "message" server-side when
+	// empty. Streaming consultations use "message".
+	TriggerType string    `json:"trigger_type,omitempty"`
+	Graph       FlowGraph `json:"graph"`
+}
+
+// FlowResult is what the server returns from UpsertFlow.
+type FlowResult struct {
+	FlowID    string `json:"flow_id"`
+	Slug      string `json:"slug"`
+	Name      string `json:"name"`
+	WebhookID string `json:"webhook_id"`
+	Created   bool   `json:"created"`
+}
+
+// UpsertFlow creates a flow from a full custom graph on first call and
+// updates it on subsequent calls, idempotent by (org_id, slug). Use it for
+// flows that are not the agent preset — STT + extraction pipelines, etc.
+// The webhook id stays stable across upserts.
+func (s *FlowsService) UpsertFlow(
+	ctx context.Context, spec FlowSpec,
+) (*FlowResult, error) {
+	raw, err := s.transport.requestJSON(ctx, "POST", "/v1/flows/upsert", spec)
+	if err != nil {
+		return nil, err
+	}
+	out := &FlowResult{}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON response: %v", ErrAdmin, err)
+	}
+	return out, nil
+}
+
 // ResolvedFlowWebhook is the streaming webhook a flow resolves to.
 type ResolvedFlowWebhook struct {
 	FlowID       string `json:"flow_id"`
