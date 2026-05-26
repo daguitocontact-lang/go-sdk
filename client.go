@@ -35,6 +35,7 @@ type Client struct {
 	Budgets     *BudgetsService
 	Flows       *FlowsService
 	Templates   *TemplatesService
+	Models      *ModelsService
 }
 
 // NewClient constructs a *Client. Returns an error if APIURL or APIKey is
@@ -56,5 +57,6 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		Budgets:     &BudgetsService{transport: transport},
 		Flows:       &FlowsService{transport: transport},
 		Templates:   &TemplatesService{transport: transport},
+		Models:      &ModelsService{transport: transport},
 	}, nil
 }

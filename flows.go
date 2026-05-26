@@ -40,9 +40,20 @@ type AgentFlowSpec struct {
 // `handler` kind (server-side registered tools like `search_knowledge`,
 // `web_search`) is supported via this endpoint.
 type FlowToolRef struct {
-	Kind   string         `json:"kind"`
-	Name   string         `json:"name"`
-	Config map[string]any `json:"config,omitempty"`
+	Kind         string         `json:"kind"`
+	Name         string         `json:"name"`
+	Config       map[string]any `json:"config,omitempty"`
+	RequiresData *RequiresData  `json:"requires_data,omitempty"`
+}
+
+// RequiresData gates a tool from the LLM until the named data is
+// available on the session. Daguito hides the tool from the model when
+// the gate is unmet, so the prompt stays clean of dead-end calls.
+type RequiresData struct {
+	// KBScope = true: hide unless the session's KB scope has any chunks.
+	// Used by `search_knowledge` so the LLM doesn't call it before any
+	// document has been indexed for the scope.
+	KBScope bool `json:"kb_scope,omitempty"`
 }
 
 // AgentFlowResult is what the server returns from UpsertAgent.
