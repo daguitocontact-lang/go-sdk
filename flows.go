@@ -34,6 +34,11 @@ type AgentFlowSpec struct {
 	MemoryFactsSchema   any      `json:"memory_facts_schema,omitempty"`
 	MemorySummaryConfig any      `json:"memory_summary_config,omitempty"`
 	ContextMemoryKeys   []string `json:"context_memory_keys,omitempty"`
+	// CoalesceEnabled, when set to false, disables the inbound coalesce
+	// debounce + dedup for this flow. Use it when the caller's UI already
+	// gates the composer client-side and a buffered turn would just add
+	// latency. Defaults to true (coalesce on) when nil.
+	CoalesceEnabled *bool `json:"coalesce_enabled,omitempty"`
 }
 
 // FlowToolRef declares a single tool the agent can call. Today only the

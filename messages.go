@@ -15,7 +15,9 @@ const (
 // SendableMessage is the wire shape accepted by WebhookStreamSession.Send.
 // In TypeScript this is a discriminated union; in Go we model it as a struct
 // with optional fields and a Kind tag. Use the helper constructors below —
-// they fill the correct subset of fields for each kind.
+// they fill the correct subset of fields for each kind. The session wraps
+// MediaKey/MimeType/SizeBytes into the nested `media` object Daguito expects
+// inside `toInbound`.
 //
 // Wire kinds:
 //
