@@ -315,14 +315,21 @@ func (s *WebhookStreamSession) dispatch(ctx context.Context, msg SendableMessage
 // base_input — except pre-uploaded media, which travels on `media`.
 func toInbound(msg SendableMessage) map[string]any {
 	if msg.Kind != "form-response" && msg.MediaKey != "" {
+		media := map[string]any{
+			"key":        msg.MediaKey,
+			"mime_type":  msg.MimeType,
+			"size_bytes": msg.SizeBytes,
+		}
+		// Client-owned media: Daguito fetches the bytes from this presigned URL
+		// instead of signing the key against its own storage. Mirrors the JS
+		// SDK's mediaUrl path (MediaRefSchema.url).
+		if msg.MediaURL != "" {
+			media["url"] = msg.MediaURL
+		}
 		return map[string]any{
-			"kind": msg.Kind,
-			"text": msg.Text,
-			"media": map[string]any{
-				"key":        msg.MediaKey,
-				"mime_type":  msg.MimeType,
-				"size_bytes": msg.SizeBytes,
-			},
+			"kind":  msg.Kind,
+			"text":  msg.Text,
+			"media": media,
 		}
 	}
 	if msg.Kind == "form-response" {

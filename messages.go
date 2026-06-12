@@ -33,7 +33,13 @@ type SendableMessage struct {
 	ImageURL  string   `json:"image_url,omitempty"`
 	ImageURLs []string `json:"image_urls,omitempty"`
 
-	MediaKey  string `json:"media_key,omitempty"`
+	MediaKey string `json:"media_key,omitempty"`
+	// MediaURL is a short-lived presigned GET the integrator hosts in ITS OWN
+	// storage. When set, Daguito fetches the bytes from here instead of signing
+	// MediaKey against its own storage (client-owned media; see MediaRefSchema.url
+	// in @daguito/core). MediaKey stays the stable identity that keys the
+	// description cache / cross-turn memory.
+	MediaURL  string `json:"media_url,omitempty"`
 	MimeType  string `json:"mime_type,omitempty"`
 	SizeBytes int64  `json:"size_bytes,omitempty"`
 
@@ -65,6 +71,23 @@ func MediaKeyMessage(kind MediaKind, mediaKey, mimeType string, sizeBytes int64,
 	return SendableMessage{
 		Kind:      string(kind),
 		MediaKey:  mediaKey,
+		MimeType:  mimeType,
+		SizeBytes: sizeBytes,
+		Text:      text,
+	}
+}
+
+// MediaURLMessage attaches client-owned media: the bytes live in the
+// integrator's OWN storage and mediaURL is a short-lived presigned GET that
+// Daguito fetches from, instead of mirroring the bytes into Daguito storage
+// first. key stays the stable identity (path/id, NOT a URL) that keys the
+// description cache so cross-turn memory works by reference. kind is one of
+// MediaKindAudio, MediaKindDocument, MediaKindVideo, MediaKindImage.
+func MediaURLMessage(kind MediaKind, key, mediaURL, mimeType string, sizeBytes int64, text string) SendableMessage {
+	return SendableMessage{
+		Kind:      string(kind),
+		MediaKey:  key,
+		MediaURL:  mediaURL,
 		MimeType:  mimeType,
 		SizeBytes: sizeBytes,
 		Text:      text,
