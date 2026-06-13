@@ -11,8 +11,9 @@ import (
 	"time"
 )
 
-// WebhookRunInput is the input to RunWebhook. ApiURL is the Daguito API root
-// (e.g. https://api.daguito.com); Token is the raw sk_wh_... bearer.
+// WebhookRunInput is the input to RunWebhook. ApiURL is the Daguito ingest
+// gateway root (e.g. https://ingest.daguito.com); Token is the raw sk_wh_...
+// bearer.
 type WebhookRunInput struct {
 	APIURL  string
 	Token   string

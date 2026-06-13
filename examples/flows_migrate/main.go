@@ -6,7 +6,7 @@
 //
 // Run:
 //
-//	DAGUITO_API_URL=https://api.daguito.com \
+//	DAGUITO_API_URL=https://ingest.daguito.com \
 //	DAGUITO_API_KEY=dgsk_acc_xxxxxxxxxxxx \
 //	go run ./examples/flows_migrate
 package main
@@ -53,7 +53,7 @@ var flows = []daguito.AgentFlowSpec{
 func main() {
 	apiURL := os.Getenv("DAGUITO_API_URL")
 	if apiURL == "" {
-		apiURL = "https://api.daguito.com"
+		apiURL = daguito.DefaultAPIURL
 	}
 	apiKey := os.Getenv("DAGUITO_API_KEY")
 	if apiKey == "" {

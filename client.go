@@ -7,6 +7,8 @@ import (
 
 // ClientOptions configures NewClient.
 type ClientOptions struct {
+	// APIURL is the Daguito ingest gateway root. When empty, NewClient falls
+	// back to DefaultAPIURL.
 	APIURL string
 	APIKey string
 	// HTTPClient is an optional override. When nil, NewClient uses
@@ -38,12 +40,12 @@ type Client struct {
 	Models      *ModelsService
 }
 
-// NewClient constructs a *Client. Returns an error if APIURL or APIKey is
-// empty — they are required and the typo is much easier to spot at the
-// constructor than three calls later.
+// NewClient constructs a *Client. APIURL defaults to DefaultAPIURL (the ingest
+// gateway) when empty. Returns an error if APIKey is empty — it is required and
+// the typo is much easier to spot at the constructor than three calls later.
 func NewClient(opts ClientOptions) (*Client, error) {
 	if opts.APIURL == "" {
-		return nil, errors.New("daguito.NewClient: APIURL is required")
+		opts.APIURL = DefaultAPIURL
 	}
 	if opts.APIKey == "" {
 		return nil, errors.New("daguito.NewClient: APIKey is required")

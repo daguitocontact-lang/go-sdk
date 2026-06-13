@@ -25,8 +25,8 @@ func TestAppendClientQueryParams(t *testing.T) {
 		name string
 		in   string
 	}{
-		{"no query", "wss://api.daguito.com/v1/stream"},
-		{"with query", "wss://api.daguito.com/v1/stream?token=abc"},
+		{"no query", "wss://ingest.daguito.com/v1/stream"},
+		{"with query", "wss://ingest.daguito.com/v1/stream?token=abc"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
