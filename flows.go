@@ -20,20 +20,20 @@ type FlowsService struct {
 // the first call creates the flow + webhook, subsequent calls update the
 // agent config. The webhook id stays stable across upserts.
 type AgentFlowSpec struct {
-	Slug              string        `json:"slug"`
-	Name              string        `json:"name"`
-	Provider          string        `json:"provider"`
-	Model             string        `json:"model"`
-	SystemPrompt      string        `json:"system_prompt"`
-	Temperature       *float64      `json:"temperature,omitempty"`
-	MaxTokens         *int          `json:"max_tokens,omitempty"`
-	HistoryTurns      *int          `json:"history_turns,omitempty"`
-	RecentTurns       *int          `json:"recent_turns,omitempty"`
-	MaxToolIterations *int          `json:"max_tool_iterations,omitempty"`
-	Tools             []FlowToolRef `json:"tools,omitempty"`
-	MemoryFactsSchema   any      `json:"memory_facts_schema,omitempty"`
-	MemorySummaryConfig any      `json:"memory_summary_config,omitempty"`
-	ContextMemoryKeys   []string `json:"context_memory_keys,omitempty"`
+	Slug                string        `json:"slug"`
+	Name                string        `json:"name"`
+	Provider            string        `json:"provider"`
+	Model               string        `json:"model"`
+	SystemPrompt        string        `json:"system_prompt"`
+	Temperature         *float64      `json:"temperature,omitempty"`
+	MaxTokens           *int          `json:"max_tokens,omitempty"`
+	HistoryTurns        *int          `json:"history_turns,omitempty"`
+	RecentTurns         *int          `json:"recent_turns,omitempty"`
+	MaxToolIterations   *int          `json:"max_tool_iterations,omitempty"`
+	Tools               []FlowToolRef `json:"tools,omitempty"`
+	MemoryFactsSchema   any           `json:"memory_facts_schema,omitempty"`
+	MemorySummaryConfig any           `json:"memory_summary_config,omitempty"`
+	ContextMemoryKeys   []string      `json:"context_memory_keys,omitempty"`
 	// CoalesceEnabled, when set to false, disables the inbound coalesce
 	// debounce + dedup for this flow. Use it when the caller's UI already
 	// gates the composer client-side and a buffered turn would just add
@@ -117,6 +117,12 @@ type FlowGraphEdge struct {
 type FlowGraph struct {
 	Nodes []FlowGraphNode `json:"nodes"`
 	Edges []FlowGraphEdge `json:"edges"`
+	// CoalesceEnabled, when set to false, disables the inbound coalesce
+	// debounce + dedup for this flow — same flag as AgentFlowSpec, but for
+	// custom graphs. Declared here so a graph JSON can carry it inline.
+	// Nodes may omit `position`; the server auto-lays-out any that do, so a
+	// minimal graph is just nodes + edges. Defaults to true when nil.
+	CoalesceEnabled *bool `json:"coalesce_enabled,omitempty"`
 }
 
 // FlowSpec declares a flow as a full custom graph. Unlike AgentFlowSpec

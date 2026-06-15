@@ -76,6 +76,12 @@ type AudioStreamSession struct {
 	closed bool
 	ready  *AudioStreamReady
 
+	// Serializes conn.Write across goroutines. SendAudio runs on the caller's
+	// pump goroutine while SendControl (pause/resume) runs on another — and
+	// coder/websocket forbids concurrent writers (the second write is dropped
+	// or errors). Without this, a pause sent mid-audio is silently lost.
+	writeMu sync.Mutex
+
 	readyCh   chan struct{}
 	errs      []string
 	bg        sync.WaitGroup
@@ -209,7 +215,47 @@ func (s *AudioStreamSession) SendAudio(ctx context.Context, chunk []byte) error 
 	if len(chunk) == 0 {
 		return nil
 	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	return conn.Write(ctx, websocket.MessageBinary, chunk)
+}
+
+// SendControl sends a text control frame on the audio socket. `pause` ends the
+// live STT segment server-side — the transcription provider socket is closed
+// so it stops billing — and `resume` opens a fresh segment, all WITHOUT tearing
+// down the session. This lets a long consultation pause/resume on the same run
+// instead of reconnecting (which would fragment the execution and re-bill the
+// provider's connect time).
+func (s *AudioStreamSession) SendControl(ctx context.Context, control string) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return fmt.Errorf("%w: session is closed", ErrAudioStream)
+	}
+	conn := s.conn
+	r := s.ready
+	s.mu.Unlock()
+
+	if conn == nil {
+		return fmt.Errorf("%w: not connected (call Connect first)", ErrAudioStream)
+	}
+	if r == nil {
+		return fmt.Errorf("%w: handshake not complete", ErrAudioStream)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return conn.Write(ctx, websocket.MessageText, []byte(control))
+}
+
+// Pause closes the live STT segment (the provider stops billing) without
+// ending the session. Resume reopens it on the next audio.
+func (s *AudioStreamSession) Pause(ctx context.Context) error {
+	return s.SendControl(ctx, "pause")
+}
+
+// Resume reopens the STT segment paused by Pause.
+func (s *AudioStreamSession) Resume(ctx context.Context) error {
+	return s.SendControl(ctx, "resume")
 }
 
 // Close tears down the session. Server XADDs eof=1 to the audio Redis
