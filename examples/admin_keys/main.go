@@ -10,7 +10,7 @@
 //
 // Run:
 //
-//	DAGUITO_API_URL=https://api.daguito.com \
+//	DAGUITO_API_URL=https://ingest.daguito.com \
 //	DAGUITO_API_KEY=dgsk_acc_xxxxxxxxxxxx \
 //	DAGUITO_FLOW_ID=flow_abc123 \
 //	go run ./examples/admin_keys
@@ -39,7 +39,7 @@ func env(name string) string {
 func main() {
 	apiURL := os.Getenv("DAGUITO_API_URL")
 	if apiURL == "" {
-		apiURL = "https://api.daguito.com"
+		apiURL = daguito.DefaultAPIURL
 	}
 	apiKey := env("DAGUITO_API_KEY")
 	flowID := env("DAGUITO_FLOW_ID")

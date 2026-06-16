@@ -55,7 +55,7 @@ ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 defer cancel()
 
 result, err := daguito.RunWebhook(ctx, daguito.WebhookRunInput{
-    APIURL: "https://api.daguito.com",
+    APIURL: "https://ingest.daguito.com",
     Token:  "sk_wh_...",
     Input:  map[string]any{"question": "What is the capital of France?"},
 })
@@ -69,7 +69,7 @@ fmt.Println(result.Output)
 
 ```go
 session := daguito.NewWebhookStreamSession(daguito.WebhookStreamOptions{
-    APIURL:    "https://api.daguito.com",
+    APIURL:    "https://ingest.daguito.com",
     WebhookID: "wh_abc123",
     Token:     "sk_wh_...",
 })
@@ -97,7 +97,7 @@ for evt := range session.Events() {
 
 ```go
 up, err := daguito.UploadFile(ctx, daguito.UploadInput{
-    APIURL:    "https://api.daguito.com",
+    APIURL:    "https://ingest.daguito.com",
     WebhookID: "wh_abc123",
     Token:     "sk_wh_...",
     Kind:      daguito.MediaKindDocument,
@@ -131,7 +131,7 @@ When your KB holds data for many users / workspaces / documents, you want each c
 
 ```go
 session := daguito.NewWebhookStreamSession(daguito.WebhookStreamOptions{
-    APIURL:    "https://api.daguito.com",
+    APIURL:    "https://ingest.daguito.com",
     WebhookID: "wh_abc123",
     Token:     "sk_wh_...",
     Scope: map[string]any{
@@ -193,7 +193,7 @@ for evt := range session.Events() {
 
 ```go
 kb := daguito.NewKnowledgeSession(daguito.KnowledgeSessionOptions{
-    APIURL:          "https://api.daguito.com",
+    APIURL:          "https://ingest.daguito.com",
     APIKey:          "sk_dgt_...",
     DefaultSourceID: "src_abc123",
 })
@@ -246,7 +246,7 @@ Runnable programs under [`examples/`](./examples):
 - `examples/stream_session` — streaming session with a client-side tool.
 
 ```bash
-DAGUITO_API_URL=https://api.daguito.com \
+DAGUITO_API_URL=https://ingest.daguito.com \
 DAGUITO_WEBHOOK_ID=wh_abc123 \
 DAGUITO_WEBHOOK_TOKEN=sk_wh_... \
 go run ./examples/stream_session

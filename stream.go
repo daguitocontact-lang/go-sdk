@@ -48,6 +48,16 @@ type WebhookStreamOptions struct {
 	// boundary so a hallucinated id can't widen scope or leak across
 	// conversations.
 	Scope map[string]any
+
+	// AutoReconnect re-opens the socket transparently on unexpected drops.
+	// Reuses the same SessionKey so the daguito server resumes the running
+	// flow execution — consumers don't see an EventClosed and Events() keeps
+	// delivering. The new handshake re-sends session.start, then drains any
+	// `pending` sends queued during the outage. Default false (opt-in) to
+	// preserve the historical one-shot semantics for chatbot turns; long-
+	// lived bridges (audio/video consultations, monitoring loops) should
+	// flip this on.
+	AutoReconnect bool
 }
 
 // WebhookStreamSession is a long-lived bidirectional session for streaming
@@ -305,14 +315,21 @@ func (s *WebhookStreamSession) dispatch(ctx context.Context, msg SendableMessage
 // base_input — except pre-uploaded media, which travels on `media`.
 func toInbound(msg SendableMessage) map[string]any {
 	if msg.Kind != "form-response" && msg.MediaKey != "" {
+		media := map[string]any{
+			"key":        msg.MediaKey,
+			"mime_type":  msg.MimeType,
+			"size_bytes": msg.SizeBytes,
+		}
+		// Client-owned media: Daguito fetches the bytes from this presigned URL
+		// instead of signing the key against its own storage. Mirrors the JS
+		// SDK's mediaUrl path (MediaRefSchema.url).
+		if msg.MediaURL != "" {
+			media["url"] = msg.MediaURL
+		}
 		return map[string]any{
-			"kind": msg.Kind,
-			"text": msg.Text,
-			"media": map[string]any{
-				"key":        msg.MediaKey,
-				"mime_type":  msg.MimeType,
-				"size_bytes": msg.SizeBytes,
-			},
+			"kind":  msg.Kind,
+			"text":  msg.Text,
+			"media": media,
 		}
 	}
 	if msg.Kind == "form-response" {
@@ -360,19 +377,31 @@ func (s *WebhookStreamSession) recvLoop(conn *websocket.Conn) {
 	for {
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
-			if !errors.Is(err, context.Canceled) {
-				closeErr := websocket.CloseError{}
-				if errors.As(err, &closeErr) {
-					s.emit(StreamEvent{
-						Type:   EventClosed,
-						Closed: &ClosedEvent{Code: int(closeErr.Code), Reason: closeErr.Reason},
-					})
-				} else {
-					s.emit(StreamEvent{
-						Type:   EventClosed,
-						Closed: &ClosedEvent{Reason: err.Error()},
-					})
-				}
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			// Decide whether to reconnect silently or surface a closed event.
+			// Don't reconnect when the caller asked us to close, or when
+			// auto-reconnect is off.
+			s.mu.Lock()
+			callerClosed := s.closed
+			s.mu.Unlock()
+			if !callerClosed && s.opts.AutoReconnect {
+				s.bg.Add(1)
+				go s.reconnectLoop(err)
+				return
+			}
+			closeErr := websocket.CloseError{}
+			if errors.As(err, &closeErr) {
+				s.emit(StreamEvent{
+					Type:   EventClosed,
+					Closed: &ClosedEvent{Code: int(closeErr.Code), Reason: closeErr.Reason},
+				})
+			} else {
+				s.emit(StreamEvent{
+					Type:   EventClosed,
+					Closed: &ClosedEvent{Reason: err.Error()},
+				})
 			}
 			return
 		}
@@ -384,6 +413,62 @@ func (s *WebhookStreamSession) recvLoop(conn *websocket.Conn) {
 			continue
 		}
 		s.handleFrame(frame)
+	}
+}
+
+// reconnectLoop re-opens the socket after an unexpected drop. Backoff 1s..30s.
+// The new connection sends `session.start` with the same SessionKey, so the
+// daguito server resumes the running execution's Redis channel and Events()
+// keeps delivering without surfacing the seam.
+func (s *WebhookStreamSession) reconnectLoop(cause error) {
+	defer s.bg.Done()
+	s.mu.Lock()
+	s.opened = false
+	if s.conn != nil {
+		_ = s.conn.Close(websocket.StatusGoingAway, "reconnecting")
+		s.conn = nil
+	}
+	s.mu.Unlock()
+
+	delay := time.Second
+	for attempt := 1; ; attempt++ {
+		s.mu.Lock()
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			return
+		}
+
+		wsURL, err := toWSURL(s.opts.APIURL, "/v1/webhooks/"+s.opts.WebhookID+"/stream", map[string]string{
+			"token": s.opts.Token,
+		})
+		if err == nil {
+			dialCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			conn, _, dialErr := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{})
+			cancel()
+			if dialErr == nil {
+				conn.SetReadLimit(4 << 20)
+				s.mu.Lock()
+				s.conn = conn
+				s.mu.Unlock()
+				s.bg.Add(1)
+				go s.recvLoop(conn)
+				return
+			}
+			err = dialErr
+		}
+		_ = err // best-effort; loop until close or success
+		select {
+		case <-s.done:
+			return
+		case <-time.After(delay):
+		}
+		if delay < 30*time.Second {
+			delay *= 2
+			if delay > 30*time.Second {
+				delay = 30 * time.Second
+			}
+		}
 	}
 }
 

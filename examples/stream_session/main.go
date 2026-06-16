@@ -1,6 +1,6 @@
 // Streaming session example.
 //
-//	DAGUITO_API_URL=https://api.daguito.com \
+//	DAGUITO_API_URL=https://ingest.daguito.com \
 //	DAGUITO_WEBHOOK_ID=wh_abc123 \
 //	DAGUITO_WEBHOOK_TOKEN=sk_wh_xxx \
 //	go run ./examples/stream_session

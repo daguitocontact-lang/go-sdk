@@ -21,6 +21,7 @@ type fakeAudioServer struct {
 	openedURL string
 	headers   http.Header
 	received  [][]byte
+	controls  []string
 
 	// initialFrame is the JSON frame the server sends right after upgrade.
 	initialFrame []byte
@@ -57,6 +58,10 @@ func (f *fakeAudioServer) handler(w http.ResponseWriter, r *http.Request) {
 			copy(cp, data)
 			f.mu.Lock()
 			f.received = append(f.received, cp)
+			f.mu.Unlock()
+		} else if typ == websocket.MessageText {
+			f.mu.Lock()
+			f.controls = append(f.controls, string(data))
 			f.mu.Unlock()
 		}
 	}
@@ -255,6 +260,144 @@ func TestAudioStream_SendAudioPushesBinaryChunk(t *testing.T) {
 	}
 	if string(f.received[1]) != string([]byte{4, 5, 6, 7}) {
 		t.Fatalf("frame 1: %v", f.received[1])
+	}
+}
+
+func TestAudioStream_PauseResumeSendsTextControlFrames(t *testing.T) {
+	f, srv := newFakeAudioServer(t, map[string]any{
+		"type":        "ready",
+		"session_key": "k",
+		"codec":       "pcm16",
+	}, false)
+	defer srv.Close()
+
+	s := NewAudioStreamSession(AudioStreamOptions{
+		APIURL:       srv.URL,
+		Token:        "sk_wh_x",
+		Codec:        "pcm16",
+		SampleRate:   16000,
+		ReadyTimeout: 2 * time.Second,
+	})
+	if err := s.Connect(context.Background()); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	if err := s.Pause(context.Background()); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	if err := s.Resume(context.Background()); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	_ = s.Close()
+
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) {
+		f.mu.Lock()
+		got := len(f.controls)
+		f.mu.Unlock()
+		if got >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.controls) < 2 {
+		t.Fatalf("server received %d control frames, want 2", len(f.controls))
+	}
+	if f.controls[0] != "pause" || f.controls[1] != "resume" {
+		t.Fatalf("controls = %v, want [pause resume]", f.controls)
+	}
+}
+
+func TestAudioStream_ConcurrentAudioAndControlDoesNotDropFrames(t *testing.T) {
+	// Regression: SendAudio (pump goroutine) and SendControl (mute goroutine)
+	// write to the same socket. coder/websocket forbids concurrent writers, so
+	// without the session's write mutex a control frame sent mid-audio is lost
+	// — which is exactly how a real `pause` went missing. Hammer both paths
+	// concurrently and assert NO errors and EVERY control frame arrives.
+	f, srv := newFakeAudioServer(t, map[string]any{
+		"type":        "ready",
+		"session_key": "k",
+		"codec":       "pcm16",
+	}, false)
+	defer srv.Close()
+
+	s := NewAudioStreamSession(AudioStreamOptions{
+		APIURL:       srv.URL,
+		Token:        "sk_wh_x",
+		Codec:        "pcm16",
+		SampleRate:   16000,
+		ReadyTimeout: 2 * time.Second,
+	})
+	if err := s.Connect(context.Background()); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	const audioWriters = 100
+	const controlWriters = 20
+	var wg sync.WaitGroup
+	errs := make(chan error, audioWriters+controlWriters)
+	for i := 0; i < audioWriters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.SendAudio(context.Background(), []byte{1, 2, 3, 4}); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	for i := 0; i < controlWriters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.Pause(context.Background()); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent write error (race not serialized): %v", err)
+	}
+
+	// Wait for the server to drain, then assert every control frame landed.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		f.mu.Lock()
+		got := len(f.controls)
+		f.mu.Unlock()
+		if got >= controlWriters {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = s.Close()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.controls) != controlWriters {
+		t.Fatalf("server got %d control frames, want %d (frames dropped by the race)", len(f.controls), controlWriters)
+	}
+	for _, c := range f.controls {
+		if c != "pause" {
+			t.Fatalf("unexpected control frame %q", c)
+		}
+	}
+}
+
+func TestAudioStream_ControlBeforeConnect(t *testing.T) {
+	s := NewAudioStreamSession(AudioStreamOptions{
+		APIURL:     "http://x",
+		Token:      "t",
+		Codec:      "pcm16",
+		SampleRate: 16000,
+	})
+	err := s.Pause(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("want not-connected error, got %v", err)
 	}
 }
 

@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+// DefaultAPIURL is the Daguito ingest gateway — the default base URL for the
+// SDK/inbound surface (webhooks, streaming, knowledge search, audio, upload).
+// Callers may override it via ClientOptions.APIURL or the matching field on the
+// standalone helper inputs.
+const DefaultAPIURL = "https://ingest.daguito.com"
+
 // joinHTTP joins an HTTP base URL with a path, normalising slashes.
 func joinHTTP(base, path string) string {
 	base = strings.TrimRight(base, "/")
