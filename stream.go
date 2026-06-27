@@ -225,6 +225,25 @@ func (s *WebhookStreamSession) SendRaw(ctx context.Context, frame map[string]any
 	return s.writeJSON(ctx, frame)
 }
 
+// Cancel requests the server to abort the running flow execution. Unlike
+// Close (which only disconnects the bridge), Cancel sends a dedicated frame
+// that triggers the engine's AbortController — the flow stops mid-flight,
+// nodes like ai_agent throwIfAborted in their LLM loop, and the execution
+// persists with status='cancelled'. The session remains open so the client
+// can still receive any final events before calling Close.
+//
+// Safe to call multiple times. No-op if the session isn't connected.
+func (s *WebhookStreamSession) Cancel(ctx context.Context) error {
+	s.mu.Lock()
+	conn := s.conn
+	closed := s.closed
+	s.mu.Unlock()
+	if closed || conn == nil {
+		return nil
+	}
+	return s.writeJSON(ctx, map[string]any{"type": "cancel"})
+}
+
 // Close tears down the session. Safe to call multiple times.
 func (s *WebhookStreamSession) Close() error {
 	s.mu.Lock()
