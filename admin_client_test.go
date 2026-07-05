@@ -328,9 +328,15 @@ func TestBudgetsSetOrgNullClears(t *testing.T) {
 }
 
 func TestNewClientValidatesArgs(t *testing.T) {
-	if _, err := NewClient(ClientOptions{APIKey: "x"}); err == nil {
-		t.Fatalf("want error for empty APIURL")
+	// Empty APIURL is allowed — NewClient defaults it to DefaultAPIURL.
+	c, err := NewClient(ClientOptions{APIKey: "x"})
+	if err != nil {
+		t.Fatalf("empty APIURL should default, got error: %v", err)
 	}
+	if c.APIURL != DefaultAPIURL {
+		t.Fatalf("empty APIURL should default to %q, got %q", DefaultAPIURL, c.APIURL)
+	}
+	// APIKey stays required.
 	if _, err := NewClient(ClientOptions{APIURL: "https://x"}); err == nil {
 		t.Fatalf("want error for empty APIKey")
 	}
