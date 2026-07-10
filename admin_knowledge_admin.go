@@ -44,8 +44,11 @@ type KnowledgeSource struct {
 	ChunkCount  int     `json:"chunk_count"`
 	TokenCount  int     `json:"token_count"`
 	SourceCount int     `json:"source_count,omitempty"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	// Levels names the routing tree of the knowledge base (max two entries,
+	// e.g. ["doctor","country"]). Empty when the base has no routing levels.
+	Levels    []string `json:"levels,omitempty"`
+	CreatedAt string   `json:"created_at"`
+	UpdatedAt string   `json:"updated_at"`
 }
 
 // ListKnowledgeOptions is the input to ListBases / ListSources. OrgID is
@@ -56,12 +59,25 @@ type ListKnowledgeOptions struct {
 
 // CreateKnowledgeSourceInput is the request body for CreateSource. Kind
 // is one of "url", "file", "text", "sitemap"; the server defaults to
-// "text" when empty.
+// "text" when empty. OrgID is optional for account-key callers — when
+// omitted the server derives the org from the key. It MUST be omitempty:
+// an empty string reaches the server as `"org_id":""` and fails the org
+// guard instead of deriving.
 type CreateKnowledgeSourceInput struct {
-	OrgID       string `json:"org_id"`
-	Name        string `json:"name"`
+	OrgID string `json:"org_id,omitempty"`
+	// Name is the knowledge base (space) the source lives in — get-or-created by
+	// (org, name). Reuse the same Name to place many sources in one space.
+	Name string `json:"name"`
+	// Label is the source's own display name inside the space. Defaults to Name
+	// when empty. Set it to structure a space into distinctly named sources.
+	Label       string `json:"label,omitempty"`
 	Description string `json:"description,omitempty"`
 	Kind        string `json:"kind,omitempty"`
+	// Levels names the routing tree of the knowledge base (max two entries,
+	// e.g. ["doctor","country"]). Stored on the KB; the server rejects more
+	// than two levels with a 400. Applying the KB `levels` migration is
+	// required for this to persist — Path-based routing works without it.
+	Levels []string `json:"levels,omitempty"`
 }
 
 // IngestURLInput is the request body for IngestURL.
@@ -76,6 +92,11 @@ type IngestURLInput struct {
 type IngestTextAdminInput struct {
 	Text     string         `json:"text"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+	// Path routes the chunk into a subtree — expanded positionally to the
+	// reserved metadata keys (Path[0]→l0, Path[1]→l1) and merged into Metadata
+	// (Path wins on conflict) before the request is sent. Capped at two
+	// category levels. Never serialised directly; it becomes Metadata.
+	Path []string `json:"-"`
 }
 
 // IngestJob is the response of IngestURL / IngestText admin calls plus
@@ -159,8 +180,8 @@ func (s *KnowledgeService) ListSources(
 func (s *KnowledgeService) CreateSource(
 	ctx context.Context, in CreateKnowledgeSourceInput,
 ) (*KnowledgeSource, error) {
-	if in.OrgID == "" || in.Name == "" {
-		return nil, fmt.Errorf("%w: OrgID and Name are required", ErrAdmin)
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrAdmin)
 	}
 	raw, err := s.transport.requestJSON(ctx, "POST", "/api/public/knowledge/sources", in)
 	if err != nil {
@@ -204,6 +225,11 @@ func (s *KnowledgeService) IngestText(
 	if sourceID == "" || in.Text == "" {
 		return nil, fmt.Errorf("%w: sourceID and Text are required", ErrAdmin)
 	}
+	metadata, err := expandKnowledgePath(in.Metadata, in.Path, ErrAdmin)
+	if err != nil {
+		return nil, err
+	}
+	in.Metadata = metadata
 	path := "/api/public/knowledge/sources/" + url.PathEscape(sourceID) + "/text"
 	raw, err := s.transport.requestJSON(ctx, "POST", path, in)
 	if err != nil {
@@ -241,6 +267,18 @@ func (s *KnowledgeService) DeleteSource(ctx context.Context, sourceID string) er
 		return fmt.Errorf("%w: sourceID is required", ErrAdmin)
 	}
 	path := "/api/public/knowledge/sources/" + url.PathEscape(sourceID)
+	_, err := s.transport.requestJSON(ctx, "DELETE", path, nil)
+	return err
+}
+
+// DeleteBase permanently removes a knowledge base along with every source and
+// vector inside it. Use when a shared KB is left with no owners; the next
+// CreateSource re-provisions it on demand.
+func (s *KnowledgeService) DeleteBase(ctx context.Context, kbID string) error {
+	if kbID == "" {
+		return fmt.Errorf("%w: kbID is required", ErrAdmin)
+	}
+	path := "/api/public/knowledge/bases/" + url.PathEscape(kbID)
 	_, err := s.transport.requestJSON(ctx, "DELETE", path, nil)
 	return err
 }
@@ -334,6 +372,147 @@ func (s *KnowledgeService) UpdateChunksMetadata(
 	out := &UpdateChunksMetadataResult{}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON response: %v", ErrAdmin, err)
+	}
+	return out, nil
+}
+
+// UploadFileInput is the request to UploadFile. Filename drives the server-side
+// extractor (.pdf/.txt/.md/.csv/.xlsx) and is stored as chunk metadata so
+// individual files can later be deleted via DeleteChunksByMetadata.
+type UploadFileInput struct {
+	Filename string
+	MimeType string // optional; server sniffs by extension when empty
+	Data     []byte
+	// Metadata is stamped onto every chunk the file produces (merged with the
+	// server's own filename stamp). Nil sends no metadata field — the request
+	// stays byte-identical to the pre-routing shape.
+	Metadata map[string]any
+	// Path routes the file's chunks into a subtree — expanded positionally to the
+	// reserved level keys (Path[0]→l0, Path[1]→l1) and merged into Metadata (Path
+	// wins on conflict) before the request is sent. Capped at two category levels.
+	// Never serialised directly; it becomes Metadata.
+	Path []string
+}
+
+// UploadFileResult is the synchronous response of UploadFile.
+type UploadFileResult struct {
+	SourceID   string `json:"source_id"`
+	ChunkCount int    `json:"chunk_count"`
+	TokenCount int    `json:"token_count"`
+}
+
+// UploadFile uploads a document file to the given source and ingests it
+// synchronously, returning the chunk/token counts. Unlike IngestURL/IngestText
+// there is no job to poll — the response reflects the completed ingest.
+func (s *KnowledgeService) UploadFile(
+	ctx context.Context, sourceID string, in UploadFileInput,
+) (*UploadFileResult, error) {
+	if sourceID == "" {
+		return nil, fmt.Errorf("%w: sourceID is required", ErrAdmin)
+	}
+	if in.Filename == "" {
+		return nil, fmt.Errorf("%w: Filename is required", ErrAdmin)
+	}
+	if len(in.Data) == 0 {
+		return nil, fmt.Errorf("%w: Data is required", ErrAdmin)
+	}
+	metadata, err := expandKnowledgePath(in.Metadata, in.Path, ErrAdmin)
+	if err != nil {
+		return nil, err
+	}
+	path := "/api/public/knowledge/sources/" + url.PathEscape(sourceID) + "/upload"
+	raw, err := s.transport.requestMultipart(
+		ctx, path, "file", in.Filename, in.MimeType, in.Data, metadata,
+	)
+	if err != nil {
+		return nil, err
+	}
+	out := &UploadFileResult{}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON response: %v", ErrAdmin, err)
+	}
+	return out, nil
+}
+
+// SearchAdminInput is the request to Search. OrgID is optional — the server
+// derives it from the account key when empty. SourceIDs scopes the search to
+// those sources (the server widens to their KB siblings).
+type SearchAdminInput struct {
+	Query     string
+	OrgID     string
+	SourceIDs []string
+	// MetadataEquals filters retrieval to chunks whose ingest-time metadata
+	// matches every given key/value (AND). Combine with SourceIDs to scope a
+	// search to a structured slice of the knowledge base.
+	MetadataEquals map[string]any
+	// Path routes the search to a subtree — expanded positionally to the
+	// reserved level keys (Path[0]→l0, Path[1]→l1) and merged into
+	// MetadataEquals (Path wins on conflict). Capped at two category levels.
+	Path []string
+	TopK *int
+}
+
+// Search runs the org's retrieval pipeline through the account credential,
+// reusing the SearchHit/SearchResult shapes from the data-plane session (both
+// the `/api/public/knowledge/search` and `/api/sdk/knowledge/search` routes
+// return the same `chunks` body).
+func (s *KnowledgeService) Search(
+	ctx context.Context, in SearchAdminInput,
+) (*SearchResult, error) {
+	if in.Query == "" {
+		return nil, fmt.Errorf("%w: Query is required", ErrAdmin)
+	}
+	metadataEquals, err := expandKnowledgePath(in.MetadataEquals, in.Path, ErrAdmin)
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]any{"query": in.Query}
+	if in.OrgID != "" {
+		body["org_id"] = in.OrgID
+	}
+	if in.SourceIDs != nil {
+		body["source_ids"] = in.SourceIDs
+	}
+	if metadataEquals != nil {
+		body["metadata_equals"] = metadataEquals
+	}
+	if in.TopK != nil {
+		body["top_k"] = *in.TopK
+	}
+	raw, err := s.transport.requestJSON(ctx, "POST", "/api/public/knowledge/search", body)
+	if err != nil {
+		return nil, err
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON response: %v", ErrAdmin, err)
+	}
+	out := &SearchResult{QueryOriginal: stringField(parsed, "query_original"), Raw: parsed}
+	if out.QueryOriginal == "" {
+		out.QueryOriginal = in.Query
+	}
+	if v, ok := parsed["query_rewritten"].(string); ok {
+		out.QueryRewritten = v
+	}
+	if rawChunks, ok := parsed["chunks"].([]any); ok {
+		for _, item := range rawChunks {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			hit := SearchHit{
+				ID:       stringField(m, "id"),
+				SourceID: stringField(m, "source_id"),
+				Content:  stringField(m, "content"),
+			}
+			if v, ok := numberField(m, "score"); ok {
+				hit.Score = v
+			}
+			if md, ok := m["metadata"].(map[string]any); ok {
+				hit.Metadata = md
+			}
+			out.Hits = append(out.Hits, hit)
+		}
 	}
 	return out, nil
 }

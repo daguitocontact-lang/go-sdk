@@ -25,6 +25,11 @@ type IngestTextInput struct {
 	Text     string
 	Metadata map[string]any
 	SourceID string // overrides DefaultSourceID when set
+	// Path routes the chunk into a subtree of the knowledge base. Each entry
+	// is expanded positionally to a reserved metadata key (Path[0]→l0,
+	// Path[1]→l1) and merged into Metadata (Path wins on conflict). Capped at
+	// two category levels — a longer Path is rejected, never truncated.
+	Path []string
 }
 
 // IngestTextResult is the response of a successful text-ingest.
@@ -38,9 +43,17 @@ type IngestTextResult struct {
 // helper constructors below — the SDK omits nil pointers from the wire body
 // so server defaults apply.
 type SearchInput struct {
-	Query         string
-	TopK          *int
-	SourceIDs     []string
+	Query     string
+	TopK      *int
+	SourceIDs []string
+	// MetadataEquals filters retrieval to chunks whose ingest-time metadata
+	// matches every given key/value (AND). Combine with SourceIDs to scope a
+	// search to a structured slice of the knowledge base.
+	MetadataEquals map[string]any
+	// Path routes the search to a subtree — expanded positionally to the
+	// reserved level keys (Path[0]→l0, Path[1]→l1) and merged into
+	// MetadataEquals (Path wins on conflict). Capped at two category levels.
+	Path          []string
 	EnableRewrite *bool
 	EnableRerank  *bool
 	EnableCache   *bool
@@ -95,10 +108,15 @@ func (s *KnowledgeSession) IngestText(ctx context.Context, in IngestTextInput) (
 		return nil, fmt.Errorf("%w: SourceID is required (pass to method or set DefaultSourceID)", ErrKnowledge)
 	}
 
+	metadata, err := expandKnowledgePath(in.Metadata, in.Path, ErrKnowledge)
+	if err != nil {
+		return nil, err
+	}
+
 	endpoint := joinHTTP(s.opts.APIURL, "/api/sdk/knowledge/sources/"+url.PathEscape(sourceID)+"/text")
 	body := map[string]any{"text": in.Text}
-	if in.Metadata != nil {
-		body["metadata"] = in.Metadata
+	if metadata != nil {
+		body["metadata"] = metadata
 	}
 
 	parsed, err := s.post(ctx, endpoint, body)
@@ -120,6 +138,11 @@ func (s *KnowledgeSession) IngestText(ctx context.Context, in IngestTextInput) (
 
 // Search runs a hybrid (BM25 + vector) search against the KB.
 func (s *KnowledgeSession) Search(ctx context.Context, in SearchInput) (*SearchResult, error) {
+	metadataEquals, err := expandKnowledgePath(in.MetadataEquals, in.Path, ErrKnowledge)
+	if err != nil {
+		return nil, err
+	}
+
 	endpoint := joinHTTP(s.opts.APIURL, "/api/sdk/knowledge/search")
 	body := map[string]any{"query": in.Query}
 	if in.TopK != nil {
@@ -127,6 +150,9 @@ func (s *KnowledgeSession) Search(ctx context.Context, in SearchInput) (*SearchR
 	}
 	if in.SourceIDs != nil {
 		body["source_ids"] = in.SourceIDs
+	}
+	if metadataEquals != nil {
+		body["metadata_equals"] = metadataEquals
 	}
 	if in.EnableRewrite != nil {
 		body["enable_rewrite"] = *in.EnableRewrite

@@ -6,6 +6,10 @@ import "errors"
 var (
 	// ErrInvalidToken is returned when a webhook or KB key is rejected.
 	ErrInvalidToken = errors.New("daguito: invalid token")
+	// ErrNotFound is returned when a request targets a resource that no longer
+	// exists (HTTP 404) — e.g. uploading to a knowledge source that was deleted.
+	// Callers can errors.Is on it to re-provision and retry.
+	ErrNotFound = errors.New("daguito: not found")
 	// ErrUploadFailed is returned when either the presign POST or the
 	// follow-up PUT to object storage fails.
 	ErrUploadFailed = errors.New("daguito: upload failed")

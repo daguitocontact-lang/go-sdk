@@ -38,6 +38,7 @@ type Client struct {
 	Flows       *FlowsService
 	Templates   *TemplatesService
 	Models      *ModelsService
+	Knowledge   *KnowledgeService
 }
 
 // NewClient constructs a *Client. APIURL defaults to DefaultAPIURL (the ingest
@@ -60,5 +61,6 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		Flows:       &FlowsService{transport: transport},
 		Templates:   &TemplatesService{transport: transport},
 		Models:      &ModelsService{transport: transport},
+		Knowledge:   &KnowledgeService{transport: transport},
 	}, nil
 }
