@@ -26,23 +26,23 @@ import "github.com/daguitocontact-lang/go-sdk"
 
 ## What's in the box
 
-| Symbol                  | Use it for                                                              |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `RunWebhook`            | One-shot HTTP call to a flow. Wait, get the result.                     |
-| `WebhookStreamSession`  | Long-lived WebSocket. Streams tokens, node lifecycle, custom emits.     |
-| `UploadFile`            | Presigned upload for image / audio / document / video attachments.      |
-| `session.RegisterTool`  | Register OpenAI-style function tools the LLM can invoke on your code.   |
-| `WebhookStreamOptions.Scope` | Server-enforced metadata filter for KB searches (data isolation).  |
-| `KnowledgeSession`      | Ingest + search a Knowledge Base with a `sk_dgt_...` org key.           |
+| Symbol                       | Use it for                                                            |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `RunWebhook`                 | One-shot HTTP call to a flow. Wait, get the result.                   |
+| `WebhookStreamSession`       | Long-lived WebSocket. Streams tokens, node lifecycle, custom emits.   |
+| `UploadFile`                 | Presigned upload for image / audio / document / video attachments.    |
+| `session.RegisterTool`       | Register OpenAI-style function tools the LLM can invoke on your code. |
+| `WebhookStreamOptions.Scope` | Server-enforced metadata filter for KB searches (data isolation).     |
+| `KnowledgeSession`           | Ingest + search a Knowledge Base with a `sk_dgt_...` org key.         |
 
 Every WebSocket event is a typed struct delivered on `session.Events()` — switch on `evt.Type` and read the matching pointer.
 
 ## Authentication
 
-| Surface          | Key shape       | Best for                                        |
-| ---------------- | --------------- | ----------------------------------------------- |
-| Webhook          | `sk_wh_...`     | Server-to-server, your own backend, scripts     |
-| Knowledge Base   | `sk_dgt_...`    | Ingest + search against your own KB             |
+| Surface        | Key shape    | Best for                                    |
+| -------------- | ------------ | ------------------------------------------- |
+| Webhook        | `sk_wh_...`  | Server-to-server, your own backend, scripts |
+| Knowledge Base | `sk_dgt_...` | Ingest + search against your own KB         |
 
 Create both from the Daguito dashboard.
 
@@ -214,18 +214,18 @@ for _, h := range result.Hits {
 
 ## Event reference
 
-| `evt.Type`            | Pointer field         | When                          |
-| --------------------- | --------------------- | ----------------------------- |
-| `EventReady`          | `evt.Ready`           | Socket authenticated          |
-| `EventClosed`         | `evt.Closed`          | Transport closed              |
-| `EventNodeStarted`    | `evt.NodeStarted`     | Engine entered a node         |
-| `EventNodeToken`      | `evt.NodeToken`       | LLM streaming token           |
-| `EventNodeCompleted`  | `evt.NodeCompleted`   | Node finished                 |
-| `EventNodeFailed`     | `evt.NodeFailed`      | Node errored                  |
-| `EventNodeEmit`       | `evt.NodeEmit`        | Tool progress / custom emits  |
-| `EventFlowCompleted`  | `evt.FlowCompleted`   | Engine finished               |
-| `EventFlowFailed`     | `evt.FlowFailed`      | Engine errored                |
-| `EventError` | `evt.Error`           | Protocol-level error          |
+| `evt.Type`           | Pointer field       | When                         |
+| -------------------- | ------------------- | ---------------------------- |
+| `EventReady`         | `evt.Ready`         | Socket authenticated         |
+| `EventClosed`        | `evt.Closed`        | Transport closed             |
+| `EventNodeStarted`   | `evt.NodeStarted`   | Engine entered a node        |
+| `EventNodeToken`     | `evt.NodeToken`     | LLM streaming token          |
+| `EventNodeCompleted` | `evt.NodeCompleted` | Node finished                |
+| `EventNodeFailed`    | `evt.NodeFailed`    | Node errored                 |
+| `EventNodeEmit`      | `evt.NodeEmit`      | Tool progress / custom emits |
+| `EventFlowCompleted` | `evt.FlowCompleted` | Engine finished              |
+| `EventFlowFailed`    | `evt.FlowFailed`    | Engine errored               |
+| `EventError`         | `evt.Error`         | Protocol-level error         |
 
 ## Errors
 
